@@ -1,31 +1,36 @@
-import secrets
+from dotenv import load_dotenv
+import os
 from flask import Flask, request, g
-from flask_restx import Api, Resource, fields # type: ignore
+from flask_restx import Api, Resource, fields  # type: ignore
 from functools import wraps
 from .db import get_connection, init_db
 import logging
+import jwt
+from datetime import datetime, timedelta
 
-# Define a simple in-memory token store
-tokens = {}
-
-#log = logging.getLogger(__name__)
+# Configuración logging
 logging.basicConfig(
-     filename="app.log",
-     level=logging.DEBUG,
-     encoding="utf-8",
-     filemode="a",
-     format="{asctime} - {levelname} - {message}",
-     style="{",
-     datefmt="%Y-%m-%d %H:%M",
+    filename="app.log",
+    level=logging.DEBUG,
+    encoding="utf-8",
+    filemode="a",
+    format="{asctime} - {levelname} - {message}",
+    style="{",
+    datefmt="%Y-%m-%d %H:%M",
 )
 
-# Configure Swagger security scheme for Bearer tokens
+load_dotenv()
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+TOKEN_EXPIRATION_MINUTES = int(os.getenv("TOKEN_EXPIRATION_MINUTES", 60))
+
+# Configuración Swagger para Bearer token
 authorizations = {
     'Bearer': {
         'type': 'apiKey',
         'in': 'header',
         'name': 'Authorization',
-        'description': "Enter your token in the format **Bearer <token>**"
+        'description': "Ingresa tu token en formato **Bearer <token>**"
     }
 }
 
@@ -35,16 +40,16 @@ api = Api(
     version='1.0',
     title='Core Bancario API',
     description='API para operaciones bancarias, incluyendo autenticación y operaciones de cuenta.',
-    doc='/swagger',  # Swagger UI endpoint
+    doc='/swagger',
     authorizations=authorizations,
     security='Bearer'
 )
 
-# Create namespaces for authentication and bank operations
+# Namespaces
 auth_ns = api.namespace('auth', description='Operaciones de autenticación')
 bank_ns = api.namespace('bank', description='Operaciones bancarias')
 
-# Define the expected payload models for Swagger
+# Modelos para Swagger
 login_model = auth_ns.model('Login', {
     'username': fields.String(required=True, description='Nombre de usuario', example='user1'),
     'password': fields.String(required=True, description='Contraseña', example='pass1')
@@ -72,59 +77,26 @@ pay_credit_balance_model = bank_ns.model('PayCreditBalance', {
     'amount': fields.Float(required=True, description='Monto a abonar a la deuda de la tarjeta', example=50)
 })
 
-# ---------------- Authentication Endpoints ----------------
+# Funciones JWT
+def generate_jwt(payload):
+    expiration = datetime.utcnow() + timedelta(minutes=TOKEN_EXPIRATION_MINUTES)
+    payload.update({"exp": expiration})
+    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    # En PyJWT >= 2.0 token es str, sino bytes, por eso forzamos str
+    if isinstance(token, bytes):
+        token = token.decode('utf-8')
+    return token
 
-@auth_ns.route('/login')
-class Login(Resource):
-    @auth_ns.expect(login_model, validate=True)
-    @auth_ns.doc('login')
-    def post(self):
-        """Inicia sesión y devuelve un token de autenticación."""
-        data = api.payload
-        username = data.get("username")
-        password = data.get("password")
-        
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id, username, password, role, full_name, email FROM bank.users WHERE username = %s", (username,))
-        user = cur.fetchone()
-        if user and user[2] == password:
-            token = secrets.token_hex(16)
-            # Persist the token in the database
-            cur.execute("INSERT INTO bank.tokens (token, user_id) VALUES (%s, %s)", (token, user[0]))
-            conn.commit()
-            cur.close()
-            conn.close()
-            return {"message": "Login successful", "token": token}, 200
-        else:
-            cur.close()
-            conn.close()
-            api.abort(401, "Invalid credentials")
+def verify_jwt(token):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return payload
+    except jwt.ExpiredSignatureError:
+        api.abort(401, "Token expirado")
+    except jwt.InvalidTokenError:
+        api.abort(401, "Token inválido")
 
-@auth_ns.route('/logout')
-class Logout(Resource):
-    @auth_ns.doc('logout')
-    def post(self):
-        """Invalida el token de autenticación."""
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            api.abort(401, "Authorization header missing or invalid")
-        token = auth_header.split(" ")[1]
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM bank.tokens WHERE token = %s", (token,))
-        if cur.rowcount == 0:
-            conn.commit()
-            cur.close()
-            conn.close()
-            api.abort(401, "Invalid token")
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {"message": "Logout successful"}, 200
-
-# ---------------- Token-Required Decorator ----------------
-
+# Decorador para proteger rutas
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -132,54 +104,62 @@ def token_required(f):
         if not auth_header.startswith("Bearer "):
             api.abort(401, "Authorization header missing or invalid")
         token = auth_header.split(" ")[1]
-        logging.debug("Token: "+str(token))
-        conn = get_connection()
-        cur = conn.cursor()
-        # Query the token in the database and join with users table to retrieve user info
-        cur.execute("""
-            SELECT u.id, u.username, u.role, u.full_name, u.email 
-            FROM bank.tokens t
-            JOIN bank.users u ON t.user_id = u.id
-            WHERE t.token = %s
-        """, (token,))
-        user = cur.fetchone()
-        cur.close()
-        conn.close()
-        if not user:
-            api.abort(401, "Invalid or expired token")
+        payload = verify_jwt(token)
         g.user = {
-            "id": user[0],
-            "username": user[1],
-            "role": user[2],
-            "full_name": user[3],
-            "email": user[4]
+            "id": payload["user_id"],
+            "username": payload["username"],
+            "role": payload["role"],
+            "full_name": payload["full_name"],
+            "email": payload["email"]
         }
         return f(*args, **kwargs)
     return decorated
 
-# ---------------- Banking Operation Endpoints ----------------
+# Endpoint login con JWT
+@auth_ns.route('/login')
+class Login(Resource):
+    @auth_ns.expect(login_model, validate=True)
+    @auth_ns.doc('login')
+    def post(self):
+        data = api.payload
+        username = data.get("username")
+        password = data.get("password")
 
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, username, password, role, full_name, email FROM bank.users WHERE username = %s", (username,))
+        user = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if user and user[2] == password:
+            token_payload = {
+                "user_id": user[0],
+                "username": user[1],
+                "role": user[3],
+                "full_name": user[4],
+                "email": user[5]
+            }
+            token = generate_jwt(token_payload)
+            return {"message": "Login successful", "token": token}, 200
+        else:
+            api.abort(401, "Credenciales inválidas")
+
+# Endpoints bancarios protegidos por token_required (igual que tienes, solo con el decorador modificado)
 @bank_ns.route('/deposit')
 class Deposit(Resource):
-    logging.debug("Entering....")
     @bank_ns.expect(deposit_model, validate=True)
     @bank_ns.doc('deposit')
     @token_required
     def post(self):
-        """
-        Realiza un depósito en la cuenta especificada.
-        Se requiere el número de cuenta y el monto a depositar.
-        """
         data = api.payload
         account_number = data.get("account_number")
         amount = data.get("amount", 0)
-        
         if amount <= 0:
-            api.abort(400, "Amount must be greater than zero")
-        
+            api.abort(400, "El monto debe ser mayor a cero")
+
         conn = get_connection()
         cur = conn.cursor()
-        # Update the specified account using its account number (primary key)
         cur.execute(
             "UPDATE bank.accounts SET balance = balance + %s WHERE id = %s RETURNING balance",
             (amount, account_number)
@@ -189,12 +169,12 @@ class Deposit(Resource):
             conn.rollback()
             cur.close()
             conn.close()
-            api.abort(404, "Account not found")
+            api.abort(404, "Cuenta no encontrada")
         new_balance = float(result[0])
         conn.commit()
         cur.close()
         conn.close()
-        return {"message": "Deposit successful", "new_balance": new_balance}, 200
+        return {"message": "Depósito exitoso", "new_balance": new_balance}, 200
 
 @bank_ns.route('/withdraw')
 class Withdraw(Resource):
@@ -206,7 +186,7 @@ class Withdraw(Resource):
         data = api.payload
         amount = data.get("amount", 0)
         if amount <= 0:
-            api.abort(400, "Amount must be greater than zero")
+            api.abort(400, "El monto debe ser mayor a cero")
         user_id = g.user['id']
         conn = get_connection()
         cur = conn.cursor()
@@ -215,18 +195,18 @@ class Withdraw(Resource):
         if not row:
             cur.close()
             conn.close()
-            api.abort(404, "Account not found")
+            api.abort(404, "Cuenta no encontrada")
         current_balance = float(row[0])
         if current_balance < amount:
             cur.close()
             conn.close()
-            api.abort(400, "Insufficient funds")
+            api.abort(400, "Fondos insuficientes")
         cur.execute("UPDATE bank.accounts SET balance = balance - %s WHERE user_id = %s RETURNING balance", (amount, user_id))
         new_balance = float(cur.fetchone()[0])
         conn.commit()
         cur.close()
         conn.close()
-        return {"message": "Withdrawal successful", "new_balance": new_balance}, 200
+        return {"message": "Retiro exitoso", "new_balance": new_balance}, 200
 
 @bank_ns.route('/transfer')
 class Transfer(Resource):
@@ -239,30 +219,30 @@ class Transfer(Resource):
         target_username = data.get("target_username")
         amount = data.get("amount", 0)
         if not target_username or amount <= 0:
-            api.abort(400, "Invalid data")
+            api.abort(400, "Datos inválidos")
         if target_username == g.user['username']:
-            api.abort(400, "Cannot transfer to the same account")
+            api.abort(400, "No puedes transferir a tu misma cuenta")
         conn = get_connection()
         cur = conn.cursor()
-        # Check sender's balance
+        # Verifica balance del remitente
         cur.execute("SELECT balance FROM bank.accounts WHERE user_id = %s", (g.user['id'],))
         row = cur.fetchone()
         if not row:
             cur.close()
             conn.close()
-            api.abort(404, "Sender account not found")
+            api.abort(404, "Cuenta del remitente no encontrada")
         sender_balance = float(row[0])
         if sender_balance < amount:
             cur.close()
             conn.close()
-            api.abort(400, "Insufficient funds")
-        # Find target user
+            api.abort(400, "Fondos insuficientes")
+        # Busca cuenta destino
         cur.execute("SELECT id FROM bank.users WHERE username = %s", (target_username,))
         target_user = cur.fetchone()
         if not target_user:
             cur.close()
             conn.close()
-            api.abort(404, "Target user not found")
+            api.abort(404, "Usuario destino no encontrado")
         target_user_id = target_user[0]
         try:
             cur.execute("UPDATE bank.accounts SET balance = balance - %s WHERE user_id = %s", (amount, g.user['id']))
@@ -274,10 +254,10 @@ class Transfer(Resource):
             conn.rollback()
             cur.close()
             conn.close()
-            api.abort(500, f"Error during transfer: {str(e)}")
+            api.abort(500, f"Error durante la transferencia: {str(e)}")
         cur.close()
         conn.close()
-        return {"message": "Transfer successful", "new_balance": new_balance}, 200
+        return {"message": "Transferencia exitosa", "new_balance": new_balance}, 200
 
 @bank_ns.route('/credit-payment')
 class CreditPayment(Resource):
@@ -293,7 +273,7 @@ class CreditPayment(Resource):
         data = api.payload
         amount = data.get("amount", 0)
         if amount <= 0:
-            api.abort(400, "Amount must be greater than zero")
+            api.abort(400, "El monto debe ser mayor a cero")
         user_id = g.user['id']
         conn = get_connection()
         cur = conn.cursor()
@@ -302,12 +282,12 @@ class CreditPayment(Resource):
         if not row:
             cur.close()
             conn.close()
-            api.abort(404, "Account not found")
+            api.abort(404, "Cuenta no encontrada")
         account_balance = float(row[0])
         if account_balance < amount:
             cur.close()
             conn.close()
-            api.abort(400, "Insufficient funds in account")
+            api.abort(400, "Fondos insuficientes en cuenta")
         try:
             cur.execute("UPDATE bank.accounts SET balance = balance - %s WHERE user_id = %s", (amount, user_id))
             cur.execute("UPDATE bank.credit_cards SET balance = balance + %s WHERE user_id = %s", (amount, user_id))
@@ -320,11 +300,11 @@ class CreditPayment(Resource):
             conn.rollback()
             cur.close()
             conn.close()
-            api.abort(500, f"Error processing credit card purchase: {str(e)}")
+            api.abort(500, f"Error procesando compra a crédito: {str(e)}")
         cur.close()
         conn.close()
         return {
-            "message": "Credit card purchase successful",
+            "message": "Compra a crédito exitosa",
             "account_balance": new_account_balance,
             "credit_card_debt": new_credit_balance
         }, 200
@@ -337,35 +317,35 @@ class PayCreditBalance(Resource):
     def post(self):
         """
         Realiza un abono a la deuda de la tarjeta:
-        - Descuenta el monto (o el máximo posible) de la cuenta.
+        - Descuenta el monto de la cuenta.
         - Reduce la deuda de la tarjeta de crédito.
         """
         data = api.payload
         amount = data.get("amount", 0)
         if amount <= 0:
-            api.abort(400, "Amount must be greater than zero")
+            api.abort(400, "El monto debe ser mayor a cero")
         user_id = g.user['id']
         conn = get_connection()
         cur = conn.cursor()
-        # Check account funds
+        # Verifica fondos de la cuenta
         cur.execute("SELECT balance FROM bank.accounts WHERE user_id = %s", (user_id,))
         row = cur.fetchone()
         if not row:
             cur.close()
             conn.close()
-            api.abort(404, "Account not found")
+            api.abort(404, "Cuenta no encontrada")
         account_balance = float(row[0])
         if account_balance < amount:
             cur.close()
             conn.close()
-            api.abort(400, "Insufficient funds in account")
-        # Get current credit card debt
+            api.abort(400, "Fondos insuficientes en cuenta")
+        # Obtiene deuda actual de la tarjeta
         cur.execute("SELECT balance FROM bank.credit_cards WHERE user_id = %s", (user_id,))
         row = cur.fetchone()
         if not row:
             cur.close()
             conn.close()
-            api.abort(404, "Credit card not found")
+            api.abort(404, "Tarjeta de crédito no encontrada")
         credit_debt = float(row[0])
         payment = min(amount, credit_debt)
         try:
@@ -380,11 +360,11 @@ class PayCreditBalance(Resource):
             conn.rollback()
             cur.close()
             conn.close()
-            api.abort(500, f"Error processing credit balance payment: {str(e)}")
+            api.abort(500, f"Error procesando el abono: {str(e)}")
         cur.close()
         conn.close()
         return {
-            "message": "Credit card debt payment successful",
+            "message": "Pago de deuda exitoso",
             "account_balance": new_account_balance,
             "credit_card_debt": new_credit_debt
         }, 200
@@ -395,4 +375,3 @@ def initialize_db():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
-
