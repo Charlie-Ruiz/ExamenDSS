@@ -5,6 +5,7 @@ import logging
 import re
 from flask import request
 from flask_restx import Api, Resource, abort
+from datetime import datetime, timezone, timedelta
 
 from ..db import get_connection
 from ..security import (
@@ -53,7 +54,7 @@ class AuthService:
         
         try:
             # Usar parámetros para prevenir inyección SQL
-            cur.execute("SELECT id, username, password, role, full_name, email FROM bank.users WHERE username = %s", (username,))
+            cur.execute("SELECT id, username, password, role, full_name, email, password_created_at FROM bank.users WHERE username = %s", (username,))
             user = cur.fetchone()
             
             if user and verify_password(password, user[2]):
@@ -64,11 +65,28 @@ class AuthService:
                     "full_name": user[4],
                     "email": user[5]
                 }
+                # Tiempo de expiración
                 token = generate_jwt(token_payload)
-                
+                pwd_created_at = user[6]  # TIMESTAMPTZ o None
+                now_utc = datetime.now(timezone.utc)
+                expired = False
+                if pwd_created_at is None:
+                    expired = True
+                else:
+                    if (now_utc - pwd_created_at) > timedelta(days=90):
+                        expired = True
+
                 # Log del login exitoso
                 client_ip = get_client_ip()
-                logging.info(f"Login exitoso: {username}, IP: {client_ip}")
+                if expired:
+                    logging.warning(
+                        f"Login denegado por contraseña expirada (>3 meses) o sin fecha: {username}, IP: {client_ip}"
+                    )
+                    return {
+                        "error": "Contraseña expirada (más de 3 meses). Debes actualizarla.",
+                        "password_expired": True
+                    }, 403
+                    logging.info(f"Login exitoso: {username}, IP: {client_ip}")
                 
                 return {"message": "Login successful", "token": token}, 200
             else:
@@ -194,8 +212,8 @@ class AuthService:
             
             # Insertar usuario (usando parámetros para prevenir inyección SQL)
             cur.execute("""
-                INSERT INTO bank.users (username, password, role, full_name, email)
-                VALUES (%s, %s, %s, %s, %s) RETURNING id;
+                INSERT INTO bank.users (username, password, role, full_name, email, password_created_at)
+                VALUES (%s, %s, %s, %s, %s, NOW()) RETURNING id;
             """, (username, hashed_password, 'cliente', f"{first_name} {last_name}", email))
             
             user_id = cur.fetchone()[0]
@@ -294,7 +312,8 @@ class AuthService:
             # 5. Actualizar la contraseña
             cur.execute("""
                 UPDATE bank.users
-                SET password = %s
+                SET password = %s,
+                    password_created_at = NOW()
                 WHERE id = %s
             """, (new_hashed_password, user_id))
 

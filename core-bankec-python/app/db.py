@@ -35,7 +35,8 @@ def init_db():
             password TEXT NOT NULL,
             role TEXT NOT NULL,
             full_name TEXT,
-            email TEXT
+            email TEXT,
+            password_created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
         """)
 
