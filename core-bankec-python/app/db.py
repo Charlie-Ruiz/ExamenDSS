@@ -82,6 +82,26 @@ def init_db():
         );
         """)
 
+        # Crear tabla de cajeros (sin información personal, solo OTP)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS bank.cashiers (
+            id SERIAL PRIMARY KEY,
+            otp_secret TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER REFERENCES bank.users(id)
+        );
+        """)
+
+        # Crear tabla de cajeros (sin información personal, solo OTP)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS bank.cashiers (
+            id SERIAL PRIMARY KEY,
+            otp_secret TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER REFERENCES bank.users(id)
+        );
+        """)
+
         # El esquema y tabla de logs se crean en el middleware de logging
         # para evitar duplicación y conflictos
 

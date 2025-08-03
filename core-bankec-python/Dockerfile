@@ -11,8 +11,9 @@ RUN apt-get update && apt-get install -y gcc libpq-dev && rm -rf /var/lib/apt/li
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# Copiar el código de la aplicación
+# Copiar el código de la aplicación y archivo de configuración
 COPY app/ ./app/
+COPY .env .
 
 # Exponer el puerto 8000
 EXPOSE 8000
