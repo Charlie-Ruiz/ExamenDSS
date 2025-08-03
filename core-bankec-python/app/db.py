@@ -73,6 +73,16 @@ def init_db():
         );
         """)
 
+        # Crear tabla de cajeros (sin información personal, solo OTP)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS bank.cashiers (
+            id SERIAL PRIMARY KEY,
+            otp_secret TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER REFERENCES bank.users(id)
+        );
+        """)
+
         # Crear esquema y tabla de logs personalizado
         cur.execute("CREATE SCHEMA IF NOT EXISTS logs AUTHORIZATION postgres;")
         

@@ -6,8 +6,9 @@ import logging
 
 # Importar módulos locales
 from .db import init_db
-from .security.auth import token_required
+from .security.auth import token_required, cashier_required
 from .services import AuthService, BankService
+from .services.cashier_service import CashierService
 from .models.swagger_models import create_swagger_models
 from .middleware.logging import custom_logger
 
@@ -52,6 +53,7 @@ api = Api(
 # Namespaces
 auth_ns = api.namespace("auth", description="Operaciones de autenticación")
 bank_ns = api.namespace("bank", description="Operaciones bancarias")
+cashier_ns = api.namespace("cashier", description="Operaciones de cajeros")
 logs_ns = api.namespace("logs", description="Consulta de logs del sistema")
 
 # Crear modelos Swagger
@@ -98,7 +100,7 @@ class Register(Resource):
 class Deposit(Resource):
     @bank_ns.expect(models["deposit_model"], validate=True)
     @bank_ns.doc("deposit")
-    @token_required
+    @cashier_required
     def post(self):
         data = api.payload
         account_number = data.get("account_number")
@@ -116,7 +118,7 @@ class Deposit(Resource):
 class Withdraw(Resource):
     @bank_ns.expect(models["withdraw_model"], validate=True)
     @bank_ns.doc("withdraw")
-    @token_required
+    @cashier_required
     def post(self):
         """Realiza un retiro de la cuenta del usuario autenticado."""
         data = api.payload
@@ -255,6 +257,56 @@ class LogsView(Resource):
                 cur.close()
             if conn:
                 conn.close()
+
+
+# ===== ENDPOINTS DE CAJEROS =====
+
+# Modelos para cajeros
+cashier_register_model = cashier_ns.model("CashierRegister", {
+    "first_name": fields.String(required=True, description="Nombre del cajero", example="Juan"),
+    "last_name": fields.String(required=True, description="Apellido del cajero", example="Pérez"),
+    "username": fields.String(required=True, description="Usuario (solo letras y números)", example="jperez2024"),
+    "password": fields.String(required=True, description="Contraseña (mín. 10 chars con letras, números y símbolos)", example="MiPass123!@#"),
+    "email": fields.String(required=True, description="Correo electrónico", example="jperez@corebankec.com")
+})
+
+cashier_login_model = cashier_ns.model("CashierLogin", {
+    "username": fields.String(required=True, description="Usuario del cajero", example="jperez2024"),
+    "password": fields.String(required=True, description="Contraseña del cajero", example="MiPass123!@#"),
+    "otp_token": fields.String(required=True, description="Código OTP de 6 dígitos", example="123456")
+})
+
+@cashier_ns.route("/register")
+class CashierRegister(Resource):
+    @cashier_ns.expect(cashier_register_model, validate=True)
+    @cashier_ns.doc("cashier_register")
+    def post(self):
+        """Registra un nuevo cajero con autenticación OTP"""
+        data = api.payload
+        result, status_code = CashierService.register_cashier(data)
+        
+        if status_code != 201:
+            api.abort(status_code, result.get("error", "Error desconocido"))
+        
+        return result, status_code
+
+@cashier_ns.route("/login")
+class CashierLogin(Resource):
+    @cashier_ns.expect(cashier_login_model, validate=True)
+    @cashier_ns.doc("cashier_login")
+    def post(self):
+        """Autentica un cajero con usuario, contraseña y código OTP"""
+        data = api.payload
+        username = data.get("username")
+        password = data.get("password")
+        otp_token = data.get("otp_token")
+        
+        result, status_code = CashierService.login_with_otp(username, password, otp_token)
+        
+        if status_code != 200:
+            api.abort(status_code, result.get("error", "Error desconocido"))
+        
+        return result, status_code
 
 
 # Inicializar la base de datos al crear la aplicación

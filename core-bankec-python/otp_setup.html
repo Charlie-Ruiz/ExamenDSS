@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Setup OTP - CoreBankec</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 500px; 
+            margin: 50px auto; 
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .key {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 16px;
+            text-align: center;
+            margin: 20px 0;
+            border: 2px solid #4caf50;
+        }
+        .steps {
+            background: #f0f7ff;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #2196f3;
+        }
+        h1 { color: #333; text-align: center; }
+        h2 { color: #666; }
+        .username { color: #2196f3; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🔐 Configurar OTP</h1>
+        <p>Usuario: <span class="username">jperez2024</span></p>
+        
+        <h2>📱 Clave Secreta:</h2>
+        <div class="key">EDT5H6XA6YAJGWI2OJ4KVGQETVL6SGJ3</div>
+        
+        <div class="steps">
+            <h2>📋 Pasos:</h2>
+            <ol>
+                <li><strong>Descarga Google Authenticator</strong> en tu teléfono</li>
+                <li>Abre la app y toca <strong>"+"</strong></li>
+                <li>Selecciona <strong>"Introducir clave de configuración"</strong></li>
+                <li>Rellena los campos:
+                    <ul>
+                        <li><strong>Nombre:</strong> jperez2024</li>
+                        <li><strong>Clave:</strong> EDT5H6XA6YAJGWI2OJ4KVGQETVL6SGJ3</li>
+                        <li><strong>Tipo:</strong> Basado en tiempo</li>
+                    </ul>
+                </li>
+                <li>¡Listo! Ya verás códigos de 6 dígitos</li>
+            </ol>
+        </div>
+        
+        <div style="background: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px; border: 1px solid #ffeaa7;">
+            <strong>🚀 Siguiente paso:</strong> Usa un código de 6 dígitos de la app para hacer login en la API
+        </div>
+    </div>
+</body>
+</html>
