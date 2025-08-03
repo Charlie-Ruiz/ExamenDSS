@@ -69,6 +69,22 @@ class Login(Resource):
         return result, status_code
 
 # Endpoint de registro de cliente
+@auth_ns.route('/change-password')
+class Register(Resource):
+    @auth_ns.expect(models['change_password'], validate=True)
+    @auth_ns.doc('change_password')
+    def post(self):
+        """Actualizar la contraseña de un cliente ya registrado"""
+        data = api.payload
+        
+        result, status_code = AuthService.update_password(data)
+        
+        if status_code != 201:
+            api.abort(status_code, result.get("error", "Error desconocido"))
+        
+        return result, status_code
+
+# Endpoint de registro de cliente
 @auth_ns.route('/register')
 class Register(Resource):
     @auth_ns.expect(models['register_model'], validate=True)

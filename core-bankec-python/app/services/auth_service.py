@@ -237,3 +237,77 @@ class AuthService:
         finally:
             cur.close()
             conn.close()
+
+
+    @staticmethod
+    def update_password(data):
+        """Actualiza la contraseña de un usuario"""
+        try:
+            username = sanitize_input(data.get('username', ''), allow_special_chars=False)
+            current_password = str(data.get('current_password', ''))
+            new_password = str(data.get('new_password', ''))
+        except Exception as e:
+            logging.error(f"Error en sanitización de datos para cambio de contraseña: {str(e)}")
+            return {"error": "Datos de entrada inválidos"}, 400
+
+        # Validar que todos los campos estén presentes
+        if not all([username, current_password, new_password]):
+            return {"error": "Todos los campos son requeridos"}, 400
+
+        conn = get_connection()
+        cur = conn.cursor()
+
+        try:
+            # 1. Verificar si el usuario existe y obtener hash actual
+            cur.execute("SELECT id, password, full_name, email FROM bank.users WHERE username = %s", (username,))
+            row = cur.fetchone()
+            if not row:
+                return {"error": "Usuario no encontrado"}, 404
+            
+            user_id, current_hash, full_name, email = row
+
+            # 2. Verificar la contraseña actual
+            if not verify_password(current_password, current_hash):
+                return {"error": "Contraseña actual incorrecta"}, 401
+
+            cur.execute("SELECT first_name, last_name, cedula, phone FROM bank.clients WHERE user_id = %s", (user_id,))
+            row_data = cur.fetchone()
+            if not row_data:
+                return {"error": "Usuario no encontrado"}, 404
+            first_name, last_name, cedula, phone = row_data
+
+            # 3. Validar que la nueva contraseña sea robusta
+            personal_info = {
+                "first_name": first_name,
+                "last_name": last_name,
+                "cedula": cedula,
+                "phone": phone,
+                "email": email,
+            }
+            is_valid_password, password_msg = validate_strong_password(new_password, personal_info)
+            if not is_valid_password:
+                return {"error": password_msg}, 400
+
+            # 4. Hashear la nueva contraseña
+            new_hashed_password = hash_password(new_password)
+
+            # 5. Actualizar la contraseña
+            cur.execute("""
+                UPDATE bank.users
+                SET password = %s
+                WHERE id = %s
+            """, (new_hashed_password, user_id))
+
+            conn.commit()
+            logging.info(f"Contraseña actualizada para usuario: {username}")
+
+            return {"message": "Contraseña actualizada exitosamente"}, 200
+
+        except Exception as e:
+            conn.rollback()
+            logging.error(f"Error al actualizar contraseña para {username}: {str(e)}")
+            return {"error": "Error interno del servidor {e}"}, 500
+
+        finally:
+            cur.close()
+            conn.close()
