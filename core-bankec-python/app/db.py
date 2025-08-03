@@ -23,68 +23,89 @@ def init_db():
     conn = get_connection()
     cur = conn.cursor()
     
-    # Crear esquema bank si no existe
-    cur.execute("CREATE SCHEMA IF NOT EXISTS bank AUTHORIZATION postgres;")
+    try:
+        # Crear esquema bank si no existe
+        cur.execute("CREATE SCHEMA IF NOT EXISTS bank AUTHORIZATION postgres;")
 
-    # Crear tabla de usuarios
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS bank.users (
-        id SERIAL PRIMARY KEY,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        role TEXT NOT NULL,
-        full_name TEXT,
-        email TEXT
-    );
-    """)
+        # Crear tabla de usuarios
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS bank.users (
+            id SERIAL PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL,
+            full_name TEXT,
+            email TEXT
+        );
+        """)
 
-    # Crear tabla de cuentas
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS bank.accounts (
-        id SERIAL PRIMARY KEY,
-        balance NUMERIC NOT NULL DEFAULT 0,
-        user_id INTEGER REFERENCES bank.users(id)
-    );
-    """)
+        # Crear tabla de cuentas
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS bank.accounts (
+            id SERIAL PRIMARY KEY,
+            balance NUMERIC NOT NULL DEFAULT 0,
+            user_id INTEGER REFERENCES bank.users(id)
+        );
+        """)
 
-    # Crear tabla de tarjetas de crédito
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS bank.credit_cards (
-        id SERIAL PRIMARY KEY,
-        limit_credit NUMERIC NOT NULL DEFAULT 5000,
-        balance NUMERIC NOT NULL DEFAULT 0,
-        user_id INTEGER REFERENCES bank.users(id)
-    );
-    """)
+        # Crear tabla de tarjetas de crédito
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS bank.credit_cards (
+            id SERIAL PRIMARY KEY,
+            limit_credit NUMERIC NOT NULL DEFAULT 5000,
+            balance NUMERIC NOT NULL DEFAULT 0,
+            user_id INTEGER REFERENCES bank.users(id)
+        );
+        """)
 
-    conn.commit()
+        # Crear tabla de clientes (información personal separada)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS bank.clients (
+            id SERIAL PRIMARY KEY,
+            first_name TEXT NOT NULL,
+            last_name TEXT NOT NULL,
+            address TEXT NOT NULL,
+            cedula TEXT UNIQUE NOT NULL,
+            phone TEXT NOT NULL,
+            registration_ip INET,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER REFERENCES bank.users(id)
+        );
+        """)
 
-    # Insertar datos de ejemplo si no existen usuarios
-    cur.execute("SELECT COUNT(*) FROM bank.users;")
-    count = cur.fetchone()[0]
-    if count == 0:
-        sample_users = [
-            ('user1', 'pass1', 'cliente', 'Usuario Uno', 'user1@example.com'),
-            ('user2', 'pass2', 'cliente', 'Usuario Dos', 'user2@example.com'),
-            ('user3', 'pass3', 'cajero',  'Usuario Tres', 'user3@example.com')
-        ]
-        for username, password, role, full_name, email in sample_users:
-            cur.execute("""
-                INSERT INTO bank.users (username, password, role, full_name, email)
-                VALUES (%s, %s, %s, %s, %s) RETURNING id;
-            """, (username, password, role, full_name, email))
-            user_id = cur.fetchone()[0]
-            # Crear cuenta bancaria con saldo inicial 1000
-            cur.execute("""
-                INSERT INTO bank.accounts (balance, user_id)
-                VALUES (%s, %s);
-            """, (1000, user_id))
-            # Crear tarjeta de crédito
-            cur.execute("""
-                INSERT INTO bank.credit_cards (limit_credit, balance, user_id)
-                VALUES (%s, %s, %s);
-            """, (5000, 0, user_id))
         conn.commit()
 
-    cur.close()
+        # Insertar datos de ejemplo si no existen usuarios
+        cur.execute("SELECT COUNT(*) FROM bank.users;")
+        count = cur.fetchone()[0]
+        if count == 0:
+            sample_users = [
+                ('user1', 'pass1', 'cliente', 'Usuario Uno', 'user1@example.com'),
+                ('user2', 'pass2', 'cliente', 'Usuario Dos', 'user2@example.com'),
+                ('user3', 'pass3', 'cajero',  'Usuario Tres', 'user3@example.com')
+            ]
+            for username, password, role, full_name, email in sample_users:
+                cur.execute("""
+                    INSERT INTO bank.users (username, password, role, full_name, email)
+                    VALUES (%s, %s, %s, %s, %s) RETURNING id;
+                """, (username, password, role, full_name, email))
+                user_id = cur.fetchone()[0]
+                # Crear cuenta bancaria con saldo inicial 1000
+                cur.execute("""
+                    INSERT INTO bank.accounts (balance, user_id)
+                    VALUES (%s, %s);
+                """, (1000, user_id))
+                # Crear tarjeta de crédito
+                cur.execute("""
+                    INSERT INTO bank.credit_cards (limit_credit, balance, user_id)
+                    VALUES (%s, %s, %s);
+                """, (5000, 0, user_id))
+            conn.commit()
+
+    except Exception as e:
+        print(f"Error inicializando la base de datos: {e}")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
     conn.close()
