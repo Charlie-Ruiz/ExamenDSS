@@ -3,7 +3,7 @@ Modelos Swagger para la documentación de la API
 """
 from flask_restx import fields
 
-def create_swagger_models(auth_ns, bank_ns):
+def create_swagger_models(auth_ns, bank_ns, cards_ns):
     """Crea y retorna todos los modelos Swagger"""
     
     login_model = auth_ns.model('Login', {
@@ -40,6 +40,30 @@ def create_swagger_models(auth_ns, bank_ns):
         'amount': fields.Float(required=True, description='Monto de la compra a crédito', example=100)
     })
 
+    # Modelos para el sistema de tarjetas seguro
+    register_card_model = cards_ns.model('RegisterCard', {
+        'card_number': fields.String(required=True, description='Número de tarjeta (16 dígitos)', example='4532015112830366'),
+        'expiry_month': fields.Integer(required=True, description='Mes de expiración (1-12)', example=12),
+        'expiry_year': fields.Integer(required=True, description='Año de expiración', example=2025)
+    })
+
+    verify_card_model = cards_ns.model('VerifyCard', {
+        'card_id': fields.Integer(required=True, description='ID de la tarjeta registrada', example=1),
+        'first_six_digits': fields.String(required=True, description='Primeros 6 dígitos de la tarjeta', example='453201')
+    })
+
+    request_otp_model = cards_ns.model('RequestOTP', {
+        'card_id': fields.Integer(required=True, description='ID de la tarjeta registrada', example=1),
+        'first_six_digits': fields.String(required=True, description='Primeros 6 dígitos para verificación', example='453201'),
+        'amount': fields.Float(required=True, description='Monto a pagar', example=150.50)
+    })
+
+    confirm_payment_model = cards_ns.model('ConfirmPayment', {
+        'card_id': fields.Integer(required=True, description='ID de la tarjeta registrada', example=1),
+        'amount': fields.Float(required=True, description='Monto a pagar', example=150.50),
+        'otp_code': fields.String(required=True, description='Código OTP de 6 dígitos', example='123456')
+    })
+
     pay_credit_balance_model = bank_ns.model('PayCreditBalance', {
         'amount': fields.Float(required=True, description='Monto a abonar a la deuda de la tarjeta', example=50)
     })
@@ -51,5 +75,9 @@ def create_swagger_models(auth_ns, bank_ns):
         'withdraw_model': withdraw_model,
         'transfer_model': transfer_model,
         'credit_payment_model': credit_payment_model,
-        'pay_credit_balance_model': pay_credit_balance_model
+        'pay_credit_balance_model': pay_credit_balance_model,
+        'register_card_model': register_card_model,
+        'verify_card_model': verify_card_model,
+        'request_otp_model': request_otp_model,
+        'confirm_payment_model': confirm_payment_model
     }

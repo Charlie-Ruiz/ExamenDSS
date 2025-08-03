@@ -7,7 +7,7 @@ import logging
 # Importar módulos locales
 from .db import init_db
 from .security.auth import token_required
-from .services import AuthService, BankService
+from .services import AuthService, BankService, CardSecurityService
 from .models.swagger_models import create_swagger_models
 from .middleware.logging import custom_logger
 
@@ -53,9 +53,10 @@ api = Api(
 auth_ns = api.namespace("auth", description="Operaciones de autenticación")
 bank_ns = api.namespace("bank", description="Operaciones bancarias")
 logs_ns = api.namespace("logs", description="Consulta de logs del sistema")
+cards_ns = api.namespace("cards", description="Gestión segura de tarjetas de crédito")
 
 # Crear modelos Swagger
-models = create_swagger_models(auth_ns, bank_ns)
+models = create_swagger_models(auth_ns, bank_ns, cards_ns)
 
 
 # Endpoint login con JWT
@@ -255,6 +256,98 @@ class LogsView(Resource):
                 cur.close()
             if conn:
                 conn.close()
+
+
+# Endpoints para gestión segura de tarjetas de crédito
+@cards_ns.route('/register')
+class RegisterCard(Resource):
+    @cards_ns.expect(models['register_card_model'], validate=True)
+    @cards_ns.doc('register_card')
+    @token_required
+    def post(self):
+        """Registra una nueva tarjeta de crédito para el usuario"""
+        data = api.payload
+        card_number = data.get("card_number")
+        expiry_month = data.get("expiry_month")
+        expiry_year = data.get("expiry_year")
+        
+        user_id = g.user["id"]
+        
+        result, status_code = CardSecurityService.register_card(
+            user_id, card_number, expiry_month, expiry_year
+        )
+        
+        if status_code != 201:
+            api.abort(status_code, result.get("error", "Error desconocido"))
+        
+        return result, status_code
+
+
+@cards_ns.route('/my-cards')
+class MyCards(Resource):
+    @cards_ns.doc('get_my_cards')
+    @token_required
+    def get(self):
+        """Consulta las tarjetas registradas del usuario con saldos adeudados"""
+        user_id = g.user["id"]
+        
+        result, status_code = CardSecurityService.get_user_cards(user_id)
+        
+        if status_code != 200:
+            api.abort(status_code, result.get("error", "Error desconocido"))
+        
+        return result, status_code
+
+
+@cards_ns.route('/request-otp')
+class RequestOTP(Resource):
+    @cards_ns.expect(models['request_otp_model'], validate=True)
+    @cards_ns.doc('request_otp')
+    @token_required
+    def post(self):
+        """Solicita un OTP para confirmar un pago - requiere verificación de los primeros 6 dígitos"""
+        data = api.payload
+        card_id = data.get("card_id")
+        first_six_digits = data.get("first_six_digits")
+        amount = data.get("amount")
+        
+        user_id = g.user["id"]
+        
+        # Verificar propiedad de la tarjeta
+        if not CardSecurityService.verify_card_ownership(user_id, card_id, first_six_digits):
+            custom_logger.warning(f"Intento de acceso no autorizado a tarjeta - Usuario: {g.user.get('username')}")
+            api.abort(403, "Tarjeta no encontrada o los primeros 6 dígitos no coinciden")
+        
+        result, status_code = CardSecurityService.generate_payment_otp(user_id, card_id, amount)
+        
+        if status_code != 200:
+            api.abort(status_code, result.get("error", "Error desconocido"))
+        
+        return result, status_code
+
+
+@cards_ns.route('/confirm-payment')
+class ConfirmPayment(Resource):
+    @cards_ns.expect(models['confirm_payment_model'], validate=True)
+    @cards_ns.doc('confirm_payment')
+    @token_required
+    def post(self):
+        """Confirma el pago usando el código OTP"""
+        data = api.payload
+        card_id = data.get("card_id")
+        amount = data.get("amount")
+        otp_code = data.get("otp_code")
+        
+        user_id = g.user["id"]
+        
+        result, status_code = CardSecurityService.verify_otp_and_process_payment(
+            user_id, card_id, amount, otp_code
+        )
+        
+        if status_code != 200:
+            api.abort(status_code, result.get("error", "Error desconocido"))
+        
+        return result, status_code
 
 
 # Inicializar la base de datos al crear la aplicación
