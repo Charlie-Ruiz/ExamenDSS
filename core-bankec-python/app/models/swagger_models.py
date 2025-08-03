@@ -11,6 +11,12 @@ def create_swagger_models(auth_ns, bank_ns, cards_ns):
         'password': fields.String(required=True, description='Contraseña', example='pass1')
     })
 
+    change_password_model = auth_ns.model('Change_password', {
+        'username': fields.String(required=True, description='Nombre de usuario', example='user1'),
+        'current_password': fields.String(required=True, description='Contraseña actual', example='pass1'),
+        'new_password': fields.String(required=True, description='Contraseña nueva', example='pass1')
+    })
+
     register_model = auth_ns.model('Register', {
         'first_name': fields.String(required=True, description='Nombres', example='Juan Carlos'),
         'last_name': fields.String(required=True, description='Apellidos', example='Pérez García'),
@@ -70,6 +76,7 @@ def create_swagger_models(auth_ns, bank_ns, cards_ns):
     
     return {
         'login_model': login_model,
+        'change_password': change_password_model,
         'register_model': register_model,
         'deposit_model': deposit_model,
         'withdraw_model': withdraw_model,

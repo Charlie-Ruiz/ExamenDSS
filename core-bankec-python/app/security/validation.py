@@ -3,6 +3,7 @@ Módulo de validaciones de seguridad específicas
 """
 import re
 from .sanitization import sanitize_input
+from .password import validate_security_password
 
 # Patrones de seguridad reutilizables
 SECURITY_PATTERNS = {
@@ -204,14 +205,44 @@ def validate_username(username, personal_info):
 
 def validate_strong_password(password, personal_info):
     """Valida que la contraseña sea robusta y no contenga información personal"""
-    # Usar validación de seguridad base
-    is_valid, message = validate_password_security(password, min_length=8)
-    if not is_valid:
-        return False, message
+    if not password:
+        return False, "Contraseña es requerida"
     
-    # Verificar que no contenga información personal
-    if check_personal_info_in_text(password, personal_info):
-        return False, "Contraseña no puede contener información personal"
+    # Convertir a string pero NO sanitizar completamente (necesitamos símbolos)
+    password = str(password)
+    
+    # Verificar patrones de inyección específicos pero mantener símbolos válidos
+    injection_patterns = [
+        r'(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE|UNION|SCRIPT)\b)',
+        r'(--|\/\*|\*\/)',
+        r'(\bOR\b.*\b1\s*=\s*1\b)',
+        r'(\bAND\b.*\b1\s*=\s*1\b)',
+        r'(<script|javascript:|vbscript:)',
+    ]
+    
+    for pattern in injection_patterns:
+        if re.search(pattern, password, re.IGNORECASE):
+            return False, "Contraseña contiene patrones no permitidos"
+    
+    # Validar robustez de la contraseña
+    is_good_password, error = validate_security_password(password)
+    # Retornar el error si la contraseña no es buena
+    if(is_good_password == False): return False, error
+
+    # No debe contener información personal
+    password_lower = password.lower()
+    personal_data = [
+        sanitize_input(personal_info.get('first_name', ''), allow_special_chars=False).lower(),
+        sanitize_input(personal_info.get('last_name', ''), allow_special_chars=False).lower(),
+        sanitize_input(personal_info.get('cedula', ''), allow_special_chars=False),
+        sanitize_input(personal_info.get('phone', ''), allow_special_chars=False),
+        sanitize_input(personal_info.get('email', ''), allow_special_chars=False).lower().split('@')[0]
+    ]
+    
+    for data in personal_data:
+        if data and len(data) >= 3:  # Solo verificar si tiene al menos 3 caracteres
+            if data in password_lower:
+                return False, "Contraseña no puede contener información personal"
     
     return True, "Contraseña válida"
 
