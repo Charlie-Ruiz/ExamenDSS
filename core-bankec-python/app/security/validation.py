@@ -3,6 +3,7 @@ Módulo de validaciones de seguridad específicas
 """
 import re
 from .sanitization import sanitize_input
+from .password import validate_security_password
 
 def validate_sql_safe(input_string):
     """Validación adicional para prevenir SQL injection"""
@@ -149,26 +150,11 @@ def validate_strong_password(password, personal_info):
         if re.search(pattern, password, re.IGNORECASE):
             return False, "Contraseña contiene patrones no permitidos"
     
-    # Longitud mínima
-    if len(password) < 8:
-        return False, "Contraseña debe tener al menos 8 caracteres"
-    
-    # Al menos una letra minúscula
-    if not re.search(r'[a-z]', password):
-        return False, "Contraseña debe contener al menos una letra minúscula"
-    
-    # Al menos una letra mayúscula
-    if not re.search(r'[A-Z]', password):
-        return False, "Contraseña debe contener al menos una letra mayúscula"
-    
-    # Al menos un número
-    if not re.search(r'\d', password):
-        return False, "Contraseña debe contener al menos un número"
-    
-    # Al menos un símbolo permitido
-    if not re.search(r'[!@#$%^&*(),.?":{}|<>_+=\-\[\]\\;]', password):
-        return False, "Contraseña debe contener al menos un símbolo (!@#$%^&*(),.?\":{}|<>_+-=[]\\;)"
-    
+    # Validar robustez de la contraseña
+    is_good_password, error = validate_security_password(password)
+    # Retornar el error si la contraseña no es buena
+    if(is_good_password == False): return False, error
+
     # No debe contener información personal
     password_lower = password.lower()
     personal_data = [
