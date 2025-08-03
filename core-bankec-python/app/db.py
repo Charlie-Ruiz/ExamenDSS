@@ -73,6 +73,42 @@ def init_db():
         );
         """)
 
+        # Crear esquema y tabla de logs personalizado
+        cur.execute("CREATE SCHEMA IF NOT EXISTS logs AUTHORIZATION postgres;")
+        
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS logs.application_logs (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMP NOT NULL,
+            log_level VARCHAR(10) NOT NULL,
+            remote_ip INET NOT NULL,
+            username VARCHAR(255),
+            action_message TEXT NOT NULL,
+            http_status_code INTEGER,
+            request_method VARCHAR(10),
+            request_path TEXT,
+            user_agent TEXT,
+            execution_time_ms NUMERIC,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        # Crear índices para logs
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_logs_timestamp 
+        ON logs.application_logs(timestamp);
+        """)
+        
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_logs_level 
+        ON logs.application_logs(log_level);
+        """)
+        
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_logs_username 
+        ON logs.application_logs(username);
+        """)
+
         conn.commit()
 
         # Insertar datos de ejemplo si no existen usuarios
