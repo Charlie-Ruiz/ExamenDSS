@@ -46,8 +46,17 @@ class CustomLogger:
             conn = self._get_db_connection()
             cur = conn.cursor()
 
-            # Crear esquema separado para logs
-            cur.execute("CREATE SCHEMA IF NOT EXISTS logs AUTHORIZATION postgres;")
+            # Verificar si el esquema logs ya existe antes de crearlo
+            cur.execute("""
+                SELECT 1 FROM information_schema.schemata 
+                WHERE schema_name = 'logs'
+            """)
+            
+            if not cur.fetchone():
+                cur.execute("CREATE SCHEMA logs AUTHORIZATION postgres;")
+                print("Esquema 'logs' creado exitosamente")
+            else:
+                print("Esquema 'logs' ya existe, continuando...")
 
             # Crear tabla de logs con todos los campos requeridos
             cur.execute(
@@ -107,7 +116,7 @@ class CustomLogger:
 
     def _get_db_connection(self):
         """Obtiene conexión a la base de datos"""
-        DB_HOST = os.environ.get("POSTGRES_HOST", "db")
+        DB_HOST = os.environ.get("POSTGRES_HOST", "localhost")
         DB_PORT = os.environ.get("POSTGRES_PORT", "5432")
         DB_NAME = os.environ.get("POSTGRES_DB", "corebank")
         DB_USER = os.environ.get("POSTGRES_USER", "postgres")
